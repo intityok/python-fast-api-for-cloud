@@ -1,0 +1,45 @@
+# Cloud Build configuration for automatic deployment to Cloud Run
+steps:
+  # Build the container image
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['build', '-t', 'gcr.io/$PROJECT_ID/dataadaptor:$COMMIT_SHA', '.']
+
+  # Push the container image to Container Registry
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', 'gcr.io/$PROJECT_ID/dataadaptor:$COMMIT_SHA']
+
+  # Deploy container image to Cloud Run
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: gcloud
+    args:
+      - 'run'
+      - 'deploy'
+      - 'dataadaptor'
+      - '--image'
+      - 'gcr.io/$PROJECT_ID/dataadaptor:$COMMIT_SHA'
+      - '--region'
+      - 'asia-southeast1'  # Change to your preferred region
+      - '--platform'
+      - 'managed'
+      - '--allow-unauthenticated'  # Remove this if you want authentication
+      - '--set-env-vars'
+      - 'DSM_URL=${_DSM_URL},DSM_USER=${_DSM_USER},DSM_PASS=${_DSM_PASS},MIKROTIK_2011_URL=${_MIKROTIK_2011_URL},MIKROTIK_4011_URL=${_MIKROTIK_4011_URL},MIKROTIK_USER=${_MIKROTIK_USER},MIKROTIK_PASS=${_MIKROTIK_PASS},NVR_URL=${_NVR_URL},NVR_USER=${_NVR_USER},NVR_PASS=${_NVR_PASS}'
+
+images:
+  - 'gcr.io/$PROJECT_ID/dataadaptor:$COMMIT_SHA'
+
+# Substitution variables (set these in Cloud Build trigger)
+substitutions:
+  _DSM_URL: 'https://drive.int.in.th'
+  _DSM_USER: 'korkarn'
+  _DSM_PASS: 'INTit2025!'
+  _MIKROTIK_2011_URL: 'https://rb2011.int.in.th'
+  _MIKROTIK_4011_URL: 'https://rb4011.int.in.th'
+  _MIKROTIK_USER: 'grafana'
+  _MIKROTIK_PASS: 'INTit2025!'
+  _NVR_URL: 'http://int.in.th:37080'
+  _NVR_USER: 'grafana'
+  _NVR_PASS: 'INTit2025!'
+
+options:
+  logging: CLOUD_LOGGING_ONLY
