@@ -1,8 +1,5 @@
-import hashlib
-import re
 import os
 from typing import Dict
-from urllib.parse import urlparse
 import httpx
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import JSONResponse
@@ -28,93 +25,12 @@ NVR_USER = os.getenv("NVR_USER", "grafana")
 NVR_PASS = os.getenv("NVR_PASS", "INTit2025!")
 
 
-class DigestAuth:
-    """Digest authentication helper"""
-
-    def __init__(self, username: str, password: str):
-        self.username = username
-        self.password = password
-
-    @staticmethod
-    def md5(data: str) -> str:
-        """Generate MD5 hash"""
-        return hashlib.md5(data.encode()).hexdigest()
-
-    @staticmethod
-    def parse_digest_challenge(www_authenticate: str) -> Dict[str, str]:
-        """Parse WWW-Authenticate digest challenge"""
-        params = {}
-        pattern = r'(\w+)="([^"]+)"'
-        matches = re.findall(pattern, www_authenticate)
-        for key, value in matches:
-            params[key] = value
-
-        # Handle qop without quotes
-        qop_match = re.search(r'qop=([^,\s]+)', www_authenticate)
-        if qop_match and 'qop' not in params:
-            params['qop'] = qop_match.group(1)
-
-        return params
-
-    def build_digest_header(self, method: str, uri: str, www_authenticate: str) -> str:
-        """Build digest authorization header"""
-        params = self.parse_digest_challenge(www_authenticate)
-
-        realm = params.get('realm', '')
-        nonce = params.get('nonce', '')
-        qop = params.get('qop', 'auth')
-        opaque = params.get('opaque', '')
-
-        # Generate client nonce
-        import random
-        nc = "00000001"
-        cnonce = self.md5(str(random.random() * 1e9))[:16]
-
-        # Calculate response
-        ha1 = self.md5(f"{self.username}:{realm}:{self.password}")
-        ha2 = self.md5(f"{method}:{uri}")
-        response = self.md5(f"{ha1}:{nonce}:{nc}:{cnonce}:{qop}:{ha2}")
-
-        # Build authorization header
-        auth_header = (
-            f'Digest username="{self.username}", '
-            f'realm="{realm}", '
-            f'nonce="{nonce}", '
-            f'uri="{uri}", '
-            f'qop={qop}, '
-            f'nc={nc}, '
-            f'cnonce="{cnonce}", '
-            f'response="{response}", '
-            f'opaque="{opaque}"'
-        )
-
-        return auth_header
-
-
 async def fetch_with_digest_auth(url: str, username: str, password: str) -> Dict:
-    """Fetch data with digest authentication"""
+    """Fetch data with digest authentication using httpx built-in DigestAuth"""
     async with httpx.AsyncClient(verify=False) as client:
-        # Step 1: Initial request to get digest challenge
-        response = await client.get(url)
-
-        if response.status_code != 401:
-            raise HTTPException(status_code=500, detail="Expected 401 challenge from server")
-
-        www_authenticate = response.headers.get("www-authenticate", "")
-        if not www_authenticate:
-            raise HTTPException(status_code=500, detail="No WWW-Authenticate header received")
-
-        # Step 2: Build digest auth header and retry
-        parsed_url = urlparse(url)
-        uri = parsed_url.path
-        if parsed_url.query:
-            uri += f"?{parsed_url.query}"
-
-        digest_auth = DigestAuth(username, password)
-        auth_header = digest_auth.build_digest_header("GET", uri, www_authenticate)
-
-        # Make authenticated request
-        response = await client.get(url, headers={"Authorization": auth_header})
+        # httpx handles digest auth automatically!
+        auth = httpx.DigestAuth(username, password)
+        response = await client.get(url, auth=auth)
 
         if response.status_code != 200:
             raise HTTPException(status_code=response.status_code, detail=f"Failed to fetch data: {response.text}")
