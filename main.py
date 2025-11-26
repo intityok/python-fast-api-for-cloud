@@ -1,4 +1,5 @@
 import os
+import re
 from typing import Dict
 import httpx
 from fastapi import FastAPI, HTTPException
@@ -39,7 +40,7 @@ async def fetch_with_digest_auth(url: str, username: str, password: str) -> Dict
 
 
 def parse_nvr_response(text: str) -> Dict:
-    """Parse NVR key=value format response into JSON"""
+    """Parse NVR key=value format response into nested JSON"""
     lines = text.split('\n')
     result = {}
 
@@ -47,7 +48,63 @@ def parse_nvr_response(text: str) -> Dict:
         line = line.strip()
         if '=' in line:
             key, value = line.split('=', 1)
-            result[key.strip()] = value.strip()
+            key = key.strip()
+            value = value.strip()
+
+            # Split the key by dots to create nested structure
+            parts = key.split('.')
+            current = result
+
+            for i, part in enumerate(parts):
+                # Check if this part has array notation like "AlarmOutChannels[0]"
+                if '[' in part and ']' in part:
+                    # Split into base name and indices (handle multiple like [0][1])
+                    base = part[:part.index('[')]
+                    indices_str = part[part.index('['):]
+
+                    # Extract all array indices
+                    indices = [int(idx) for idx in re.findall(r'\[(\d+)\]', indices_str)]
+
+                    # Create the base array if it doesn't exist
+                    if base not in current:
+                        current[base] = []
+
+                    # Navigate through nested arrays
+                    temp = current[base]
+                    for idx_pos, idx in enumerate(indices[:-1]):
+                        # Ensure array is large enough
+                        while len(temp) <= idx:
+                            temp.append([])
+                        if not isinstance(temp[idx], list):
+                            temp[idx] = []
+                        temp = temp[idx]
+
+                    # Handle the last index
+                    last_idx = indices[-1]
+                    while len(temp) <= last_idx:
+                        temp.append({} if i < len(parts) - 1 else None)
+
+                    # If this is the last part, set the value
+                    if i == len(parts) - 1:
+                        temp[last_idx] = value
+                    else:
+                        # Navigate to the array element for further nesting
+                        if not isinstance(temp[last_idx], dict):
+                            temp[last_idx] = {}
+                        current = temp[last_idx]
+                else:
+                    # Regular key (no array notation)
+                    if i == len(parts) - 1:
+                        # Last part - set the value
+                        current[part] = value
+                    else:
+                        # Not the last part - create nested dict if needed
+                        if part not in current:
+                            current[part] = {}
+                        elif not isinstance(current[part], dict):
+                            # If it exists but isn't a dict, convert it
+                            current[part] = {}
+                        current = current[part]
 
     return result
 
